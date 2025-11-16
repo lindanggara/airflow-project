@@ -8,6 +8,7 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.operators.bash import BashOperator
 from airflow.operators.empty import EmptyOperator
+from airflow.exceptions import AirflowException
 from datetime import datetime, timedelta
 import pandas as pd
 import json
@@ -25,6 +26,12 @@ default_args = {
     'retries': 1,
     'retry_delay': timedelta(minutes=5),
 }
+
+def fail_if_force_flag(**context):
+    dag_run = context.get("dag_run")
+    conf = getattr(dag_run, "conf", {}) or {}
+    if conf.get("force_fail_for_alert"):
+        raise AirflowException("Forced failure for alert demo via force_fail_for_alert flag")
 
 # Fungsi Extract - Mengambil data cuaca dari Open-Meteo API
 def extract_weather_data(ti, **kwargs):
@@ -192,6 +199,11 @@ with DAG(
     tags=['kelompok_1', 'etl', 'weather', 'surabaya']
 ) as dag:
     
+    force_fail_for_alert = PythonOperator(
+        task_id="force_fail_for_alert",
+        python_callable=fail_if_force_flag,
+    )
+
     # Start task
     start = EmptyOperator(task_id='start')
     
@@ -229,4 +241,4 @@ with DAG(
     end = EmptyOperator(task_id='end')
     
     # Definisi alur workflow
-    start >> extract >> transform >> validate >> load >> cleanup >> end
+    force_fail_for_alert >> start >> extract >> transform >> validate >> load >> cleanup >> end

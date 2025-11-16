@@ -7,6 +7,7 @@ from airflow.operators.python import PythonOperator
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.operators.bash import BashOperator
 from airflow.operators.empty import EmptyOperator
+from airflow.exceptions import AirflowException
 from datetime import datetime, timedelta
 import pandas as pd
 import json
@@ -21,6 +22,12 @@ default_args_master = {
     'start_date': datetime(2024, 1, 1),
     'retries': 1,
 }
+
+def fail_if_force_flag(**context):
+    dag_run = context.get("dag_run")
+    conf = getattr(dag_run, "conf", {}) or {}
+    if conf.get("force_fail_for_alert"):
+        raise AirflowException("Forced failure for alert demo via force_fail_for_alert flag")
 
 def collect_master_weather(**context):
     print("📥 Collecting master weather data...")
@@ -267,9 +274,13 @@ def send_alert_notifications(**context):
     return "Sent"
 
 with DAG('weather_alert_system', default_args=default_args_alert, schedule=None, catchup=False, tags=['kelompok_3', 'alerts']) as dag_alert:
+    force_fail_for_alert = PythonOperator(
+    task_id="force_fail_for_alert",
+    python_callable=fail_if_force_flag,
+    )
     start = EmptyOperator(task_id='start')
     check = PythonOperator(task_id='check_alerts', python_callable=check_weather_alerts)
     send = PythonOperator(task_id='send_notifications', python_callable=send_alert_notifications)
     complete = BashOperator(task_id='complete', bash_command='echo "✅ Pipeline completed!"')
     end = EmptyOperator(task_id='end')
-    start >> check >> send >> complete >> end
+    force_fail_for_alert >> start >> check >> send >> complete >> end

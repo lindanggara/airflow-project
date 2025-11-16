@@ -8,6 +8,7 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator, BranchPythonOperator
 from airflow.operators.bash import BashOperator
 from airflow.operators.empty import EmptyOperator
+from airflow.exceptions import AirflowException
 from datetime import datetime, timedelta
 import pandas as pd
 import json
@@ -23,6 +24,12 @@ default_args = {
     'retries': 2,
     'retry_delay': timedelta(minutes=3),
 }
+
+def fail_if_force_flag(**context):
+    dag_run = context.get("dag_run")
+    conf = getattr(dag_run, "conf", {}) or {}
+    if conf.get("force_fail_for_alert"):
+        raise AirflowException("Forced failure for alert demo via force_fail_for_alert flag")
 
 # ================== EXTRACT FUNCTIONS ==================
 
@@ -389,6 +396,11 @@ with DAG(
     tags=['kelompok_2', 'weather', 'advanced', 'surabaya']
 ) as dag:
     
+    force_fail_for_alert = PythonOperator(
+    task_id="force_fail_for_alert",
+    python_callable=fail_if_force_flag,
+    )
+
     start = EmptyOperator(task_id='start')
     
     # Parallel extraction
@@ -452,7 +464,7 @@ with DAG(
     end = EmptyOperator(task_id='end', trigger_rule='none_failed_min_one_success')
     
     # Workflow
-    start >> [extract_current, extract_hourly, extract_daily] >> extraction_complete
+    force_fail_for_alert >> start >> [extract_current, extract_hourly, extract_daily] >> extraction_complete
     extraction_complete >> transform_hourly >> transform_daily >> enrich
     enrich >> quality_check >> [load, handle_issues]
     [load, handle_issues] >> cleanup >> end
